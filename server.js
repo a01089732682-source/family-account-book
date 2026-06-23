@@ -125,11 +125,39 @@ app.post('/api/history', (req, res) => {
             return;
         }
 
-        // 🔥 [실시간 핵심 리인포스] DB에 성공적으로 데이터가 꽂히면, 
-        // 현재 웹소켓망에 뚫려있는 아빠 노트북, 피콕이 폰 등 모든 기기에 "데이터 바뀜!" 신호를 방송합니다.
+        // 🔥 DB에 성공적으로 데이터가 꽂히면 실시간 방송 방출
         io.emit('database_changed', { message: '가계부에 새로운 기록이 업데이트 되었단다!' });
 
         res.json({ message: "성공적으로 저장 완료!", id: this.lastID });
+    });
+});
+
+/**
+ * 🔥 [API 2-1 추가] 🗑️ 가계부 내역 삭제 (DELETE /api/history/:id)
+ * 프론트엔드에서 넘겨준 ID 번호를 받아 SQLite DB에서 물리적으로 행을 지워버리는 가동 포트입니다.
+ */
+app.delete('/api/history/:id', (req, res) => {
+    const { id } = req.params;
+
+    if (!id) {
+        res.status(400).json({ error: "지울 데이터의 고유 ID 번호가 명시되지 않았단다!" });
+        return;
+    }
+
+    const sql = `DELETE FROM account_book WHERE id = ?`;
+
+    db.run(sql, [id], function (err) {
+        if (err) {
+            console.error('❌ 데이터 삭제 중 DB 에러:', err.message);
+            res.status(500).json({ error: err.message });
+            return;
+        }
+
+        // 💡 [실시간 방송 엔진 동일 탑재]
+        // 삭제에 성공하는 순간에도 실시간 소켓망을 통해 아빠 컴퓨터와 피콕이 폰 등 모든 단말기에 "DB 상태 바뀜!" 신호를 쏩니다.
+        io.emit('database_changed', { message: '가계부의 특정 기록이 삭제되었단다!' });
+
+        res.json({ message: "성공적으로 삭제 완료!", changes: this.changes });
     });
 });
 
@@ -152,7 +180,6 @@ app.get('/', (req, res) => {
 });
 
 // 5. 서버 기동 
-// 💡 기존 app.listen에서 server.listen으로 변경하여 HTTP와 웹소켓 포트를 하나로 통합기동합니다.
 server.listen(PORT, () => {
     console.log(`🚀 실시간 가계부 백엔드 서버가 http://localhost:${PORT} 에서 달리는 중!`);
 });

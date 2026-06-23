@@ -2,13 +2,13 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>피콕이의 모바일 가계부 🦚</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 font-sans antialiased max-w-md mx-auto min-h-screen shadow-lg flex flex-col">
+<body class="bg-gray-50 font-sans antialiased max-w-md mx-auto min-h-screen shadow-lg flex flex-col select-none">
 
-    <header class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-b-3xl shadow-md sticky top-0 z-10">
+    <header class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-b-3xl shadow-md sticky top-0 z-20">
         <p class="text-sm text-blue-100 opacity-80">피콕이의 현재 잔액</p>
         <h1 class="text-3xl font-extrabold mt-1"><span id="balance-view">0</span> 원</h1>
     </header>
@@ -37,7 +37,7 @@
         </section>
 
         <section class="space-y-3">
-            <h2 class="text-sm font-bold text-gray-500 px-1">📅 거래 내역 및 잔액 로그</h2>
+            <h2 class="text-sm font-bold text-gray-500 px-1">📅 거래 내역 및 잔액 로그 <span class="text-[10px] text-gray-400 font-normal ml-1">(모바일: 밀어서 관리 / PC: 클릭 메뉴)</span></h2>
             <div id="history-list" class="space-y-2.5"></div>
         </section>
     </main>
@@ -45,16 +45,14 @@
     <script src="/socket.io/socket.io.js"></script>
 
     <script>
-        // 오늘 날짜 기본 세팅 자바스크립트 논리
         document.getElementById('form-date').value = new Date().toISOString().substring(0, 10);
 
-        // 1. [GET 요청] 백엔드에서 가계부 내역 받아와서 수학적 연산 처리 및 화면 그리기
+        // 1. [GET 요청] 백엔드 데이터 패치 및 하이브리드 UI 렌더링
         async function fetchAndRender() {
             try {
                 const response = await fetch('/api/history');
                 const data = await response.json();
                 
-                // API 응답 필드명을 화면 렌더링에 맞게 변환
                 const normalizedData = data.map(item => ({
                     ...item,
                     type: item.etc1_value,
@@ -62,7 +60,6 @@
                     category_name: item.code_name_han
                 }));
 
-                // 역순으로 쌓인 데이터를 바탕으로 '실시간 누적 잔액(Running Total)' 연산용 임시 배열 생성
                 let runningTotal = 0;
                 const dataWithRunningTotal = [...normalizedData].reverse().map(item => {
                     if (item.type === 'INCOME') {
@@ -73,26 +70,52 @@
                     return { ...item, calculatedBalance: runningTotal };
                 });
 
-                // 상단 고정 대형 대시보드에 최종 잔액 업데이트
                 document.getElementById('balance-view').innerText = runningTotal.toLocaleString();
 
-                // 다시 최신순(화면 출력용)으로 되돌려 HTML 피드 그리기
                 const htmlList = dataWithRunningTotal.reverse().map(item => {
                     const isIncome = item.type === 'INCOME';
                     const colorClass = isIncome ? 'text-red-500 font-semibold' : 'text-blue-500 font-semibold';
                     const sign = isIncome ? '+' : '-';
                     
                     return `
-                        <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center transition-all hover:scale-[1.01]">
-                            <div>
-                                <p class="text-xs text-gray-400 font-medium">${item.date.substring(4,6)}월 ${item.date.substring(6,8)}일</p>
-                                <h3 class="text-sm font-bold text-gray-800 mt-0.5">${item.note || item.category_name}</h3>
-                                <p class="text-xs text-gray-400 mt-0.5">잔액: ${item.calculatedBalance.toLocaleString()}원</p>
+                        <div class="card-container relative overflow-visible rounded-2xl h-[76px] bg-gray-100 border border-gray-100 shadow-sm" data-id="${item.id}">
+                            
+                            <div class="absolute inset-y-0 right-0 w-32 flex z-0 rounded-r-2xl overflow-hidden">
+                                <button type="button" class="w-16 h-full bg-gray-300 text-gray-700 text-xl font-bold flex items-center justify-center active:bg-gray-400" onclick="closeSwipe(this)">❌</button>
+                                <button type="button" class="w-16 h-full bg-red-500 text-white text-xl font-bold flex items-center justify-center active:bg-red-600" onclick="deleteHistory(${item.id})">⭕</button>
                             </div>
-                            <div class="text-right">
-                                <span class="${colorClass} text-base">${sign}${item.amount.toLocaleString()} 원</span>
-                                <p class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md mt-1 inline-block">${item.category_name}</p>
+                            
+                            <div class="card-content group absolute inset-0 z-10 bg-white flex justify-between items-center px-4 rounded-2xl transition-transform duration-300 ease-out">
+                                <div class="flex items-center space-x-2">
+                                    <div>
+                                        <p class="text-xs text-gray-400 font-medium">${item.date.substring(4,6)}월 ${item.date.substring(6,8)}일</p>
+                                        <h3 class="text-sm font-bold text-gray-800 mt-0.5 truncate max-w-[150px]">${item.note || item.category_name}</h3>
+                                        <p class="text-xs text-gray-400 mt-0.5">잔액: ${item.calculatedBalance.toLocaleString()}원</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="text-right flex items-center space-x-3">
+                                    <div class="flex flex-col items-end justify-center">
+                                        <span class="${colorClass} text-base">${sign}${item.amount.toLocaleString()} 원</span>
+                                        <p class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md mt-1 inline-block">${item.category_name}</p>
+                                    </div>
+
+                                    <div class="relative inline-block text-left overflow-visible">
+                                        <button type="button" class="md:opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 p-1 rounded-full text-lg font-bold transition-opacity" onclick="toggleBalloon(this, event)">
+                                            ⋮
+                                        </button>
+                                        <div class="balloon-menu hidden absolute right-0 mt-1 w-28 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+                                            <button type="button" class="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 font-semibold flex justify-between" onclick="deleteHistory(${item.id})">
+                                                <span>지우기</span> <span>⭕</span>
+                                            </button>
+                                            <button type="button" class="w-full text-left px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 border-t border-gray-100 flex justify-between" onclick="closeAllBalloons()">
+                                                <span>닫기</span> <span>❌</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
+
                         </div>
                     `;
                 }).join('');
@@ -104,18 +127,15 @@
             }
         }
 
-        // 2. [POST 요청] 입력 폼을 서브밋하면 백엔드로 데이터를 쏴주는 파이프라인 가동
+        // 2. [POST 요청] 입력 폼 서브밋 파이프라인
         document.getElementById('account-form').addEventListener('submit', async (e) => {
-            e.preventDefault(); // 기본 새로고침 버그 차단
-
-            // 화면 인풋 데이터 파싱
-            const pay_date = document.getElementById('form-date').value.replace(/-/g, ""); // YYYY-MM-DD -> YYYYMMDD
+            e.preventDefault();
+            const pay_date = document.getElementById('form-date').value.replace(/-/g, "");
             const category_sub_code = document.getElementById('form-category').value;
             const amount = parseInt(document.getElementById('form-amount').value);
             const note = document.getElementById('form-note').value;
 
             try {
-                // Node.js 서버의 POST 엔드포인트로 패킷 전송
                 const response = await fetch('/api/history', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -125,7 +145,6 @@
                 if (response.ok) {
                     document.getElementById('form-amount').value = '';
                     document.getElementById('form-note').value = '';
-                    // 💡 로컬 입력 시에도 방송 수신으로 랜더링되지만 안정성을 위해 호출 유지
                     fetchAndRender();
                 }
             } catch (error) {
@@ -133,16 +152,88 @@
             }
         });
 
-        // 💡 [웹소켓 추가] 3. 백엔드 양방향 실시간 안테나 가동
-        const socket = io();
+        // 3. [DELETE 요청] 데이터베이스 행 파괴
+        async function deleteHistory(id) {
+            try {
+                const response = await fetch(`/api/history/${id}`, { method: 'DELETE' });
+                if (response.ok) {
+                    console.log(`🗑️ ID ${id} 삭제 완료`);
+                    fetchAndRender(); 
+                } else {
+                    alert("삭제 실패!");
+                }
+            } catch (error) {
+                console.error("삭제 통신 에러:", error);
+            }
+        }
 
-        // 서버에서 'database_changed' 방송을 때리면 낚아채서 내 화면을 동기화시킵니다.
+        // 4. [UX 제어] 모바일 슬라이딩 원위치 리셋
+        function closeSwipe(btnElement) {
+            const container = btnElement.closest('.card-container');
+            if (container) {
+                const content = container.querySelector('.card-content');
+                if (content) content.style.transform = 'translateX(0px)';
+            }
+        }
+
+        // 🔥 [PC용 신규 함수] 웹 화면 점 3개 클릭 시 벌룬 토글 제어 논리
+        function toggleBalloon(btnElement, event) {
+            event.stopPropagation(); // 카드 자체 클릭 방지 보호막
+            const currentMenu = btnElement.nextElementSibling;
+            const isHidden = currentMenu.classList.contains('hidden');
+            
+            closeAllBalloons(); // 다른 열린 벌룬 정리
+            
+            if (isHidden) {
+                currentMenu.classList.remove('hidden');
+            }
+        }
+
+        // 🔥 [PC용 신규 함수] 활성화된 모든 벌룬 일괄 숨김 처리
+        function closeAllBalloons() {
+            document.querySelectorAll('.balloon-menu').forEach(menu => {
+                menu.classList.add('hidden');
+            });
+        }
+
+        // 웹 바탕화면 여백 아무 곳이나 누르면 오픈된 PC 벌룬 자동 폐쇄
+        document.addEventListener('click', closeAllBalloons);
+
+        // 5. [TOUCH 모바일 제스처 엔진] 모바일 단말기 전용 슬라이더 연산 유지
+        let touchStartX = 0;
+        let touchEndX = 0;
+        const listWrapper = document.getElementById('history-list');
+
+        listWrapper.addEventListener('touchstart', (e) => {
+            closeAllBalloons(); // 터치 시 PC 벌룬 열린 게 있다면 삭제
+            const content = e.target.closest('.card-content');
+            if (!content) return;
+            touchStartX = e.touches[0].clientX;
+        }, { passive: true });
+
+        listWrapper.addEventListener('touchend', (e) => {
+            const content = e.target.closest('.card-content');
+            if (!content) return;
+            
+            touchEndX = e.changedTouches[0].clientX;
+            const diffX = touchStartX - touchEndX;
+            
+            if (diffX > 45) {
+                document.querySelectorAll('.card-content').forEach(c => c.style.transform = 'translateX(0px)');
+                content.style.transform = 'translateX(-128px)';
+            } 
+            else if (diffX < -45) {
+                content.style.transform = 'translateX(0px)';
+            }
+        }, { passive: true });
+
+        // 6. [웹소켓] 실시간 수신 안테나
+        const socket = io();
         socket.on('database_changed', (data) => {
             console.log("⚡ 실시간 주파수 신호 감지됨:", data.message);
-            fetchAndRender(); // 원격 트리거로 화면 리렌더링!
+            fetchAndRender();
         });
 
-        // 앱 켜지자마자 첫 화면 렌더링 가동 (Initialize)
         fetchAndRender();
     </script>
 </body>
