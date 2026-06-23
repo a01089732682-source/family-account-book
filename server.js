@@ -133,12 +133,25 @@ app.post('/api/history', (req, res) => {
     });
 });
 
-// 3. 루트 경로 처리 (index.html 강제 매핑 보완 유지)
+// 3. 관리자 전용 DB 백업 다운로드
+app.get('/api/admin/db-backup-download', (req, res) => {
+    const dbDir = process.env.RENDER_DISK_MOUNT_PATH || __dirname;
+    const file = path.join(dbDir, 'account_book.db');
+
+    res.download(file, 'render_live_account_book.db', (err) => {
+        if (err) {
+            console.error('❌ DB 백업 다운로드 실패:', err);
+            res.status(500).send('DB 파일 추출 실패');
+        }
+    });
+});
+
+// 4. 루트 경로 처리 (index.html 강제 매핑 보완 유지)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// 4. 서버 기동 
+// 5. 서버 기동 
 // 💡 기존 app.listen에서 server.listen으로 변경하여 HTTP와 웹소켓 포트를 하나로 통합기동합니다.
 server.listen(PORT, () => {
     console.log(`🚀 실시간 가계부 백엔드 서버가 http://localhost:${PORT} 에서 달리는 중!`);
