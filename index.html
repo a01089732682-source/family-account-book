@@ -14,8 +14,8 @@
     </header>
 
     <main class="p-4 flex-1 overflow-y-auto space-y-6">
-        <section class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-            <h2 class="text-sm font-bold text-gray-500 mb-3">💸 새로운 거래 기록하기</h2>
+        <section id="form-section" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 transition-all">
+            <h2 id="form-title" class="text-sm font-bold text-gray-500 mb-3">💸 새로운 거래 기록하기</h2>
             <form id="account-form" class="space-y-3">
                 <div class="grid grid-cols-2 gap-2">
                     <input type="date" id="form-date" class="border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-blue-500" required>
@@ -30,9 +30,14 @@
                     <input type="number" id="form-amount" placeholder="금액 (원)" class="col-span-1 border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-blue-500" required min="1">
                     <input type="text" id="form-note" placeholder="메모를 적어주세요 (예: 메로나)" class="col-span-2 border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-blue-500">
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded-xl text-sm transition-all shadow-sm">
-                    금고에 기록 저장하기
-                </button>
+                <div class="flex space-x-2">
+                    <button type="button" id="cancel-edit-btn" class="hidden w-1/3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold p-3 rounded-xl text-sm transition-all shadow-sm" onclick="clearFormState()">
+                        수정 취소
+                    </button>
+                    <button type="submit" id="submit-btn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded-xl text-sm transition-all shadow-sm">
+                        금고에 기록 저장하기
+                    </button>
+                </div>
             </form>
         </section>
 
@@ -45,15 +50,19 @@
     <script src="/socket.io/socket.io.js"></script>
 
     <script>
+        // 전역 메모리 캐시 및 에디터 포인터 상태값
+        let activeRecords = []; 
+        let editingId = null;   
+
         document.getElementById('form-date').value = new Date().toISOString().substring(0, 10);
 
-        // 1. [GET 요청] 백엔드 데이터 패치 및 하이브리드 UI 렌더링
+        // 1. [GET 요청] 내역 로드 및 하이브리드 UI 뷰포트 드로잉
         async function fetchAndRender() {
             try {
                 const response = await fetch('/api/history');
                 const data = await response.json();
                 
-                const normalizedData = data.map(item => ({
+                activeRecords = data.map(item => ({
                     ...item,
                     type: item.etc1_value,
                     date: item.pay_date,
@@ -61,7 +70,7 @@
                 }));
 
                 let runningTotal = 0;
-                const dataWithRunningTotal = [...normalizedData].reverse().map(item => {
+                const dataWithRunningTotal = [...activeRecords].reverse().map(item => {
                     if (item.type === 'INCOME') {
                         runningTotal += item.amount;
                     } else if (item.type === 'EXPENSE') {
@@ -78,11 +87,12 @@
                     const sign = isIncome ? '+' : '-';
                     
                     return `
-                        <div class="card-container relative overflow-visible rounded-2xl h-[76px] bg-gray-100 border border-gray-100 shadow-sm" data-id="${item.id}">
+                        <div class="card-container relative overflow-visible rounded-2xl h-[76px] bg-gray-100 border border-gray-100 shadow-sm transition-all duration-200 z-10" data-id="${item.id}">
                             
-                            <div class="absolute inset-y-0 right-0 w-32 flex z-0 rounded-r-2xl overflow-hidden">
-                                <button type="button" class="w-16 h-full bg-gray-300 text-gray-700 text-xl font-bold flex items-center justify-center active:bg-gray-400" onclick="closeSwipe(this)">❌</button>
-                                <button type="button" class="w-16 h-full bg-red-500 text-white text-xl font-bold flex items-center justify-center active:bg-red-600" onclick="deleteHistory(${item.id})">⭕</button>
+                            <div class="absolute inset-y-0 right-0 w-[180px] flex z-0 rounded-r-2xl overflow-hidden">
+                                <button type="button" class="w-[60px] h-full bg-gray-300 text-gray-700 text-sm font-bold flex items-center justify-center active:bg-gray-400" onclick="closeSwipe(this)">닫기</button>
+                                <button type="button" class="w-[60px] h-full bg-amber-500 text-white text-base font-bold flex items-center justify-center active:bg-amber-600" onclick="startEdit(${item.id})">✏️</button>
+                                <button type="button" class="w-[60px] h-full bg-emerald-500 text-white text-base font-bold flex items-center justify-center active:bg-emerald-600" onclick="deleteHistory(${item.id})">⭕</button>
                             </div>
                             
                             <div class="card-content group absolute inset-0 z-10 bg-white flex justify-between items-center px-4 rounded-2xl transition-transform duration-300 ease-out">
@@ -104,12 +114,12 @@
                                         <button type="button" class="md:opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 p-1 rounded-full text-lg font-bold transition-opacity" onclick="toggleBalloon(this, event)">
                                             ⋮
                                         </button>
-                                        <div class="balloon-menu hidden absolute right-0 mt-1 w-28 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-                                            <button type="button" class="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 font-semibold flex justify-between" onclick="deleteHistory(${item.id})">
-                                                <span>지우기</span> <span>⭕</span>
+                                        <div class="balloon-menu hidden absolute right-0 mt-1 w-28 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                                            <button type="button" class="w-full text-left px-3 py-2 text-xs text-amber-600 hover:bg-amber-50 font-semibold flex justify-between" onclick="startEdit(${item.id})">
+                                                <span>수정하기</span> <span>✏️</span>
                                             </button>
-                                            <button type="button" class="w-full text-left px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 border-t border-gray-100 flex justify-between" onclick="closeAllBalloons()">
-                                                <span>닫기</span> <span>❌</span>
+                                            <button type="button" class="w-full text-left px-3 py-2 text-xs text-emerald-600 hover:bg-emerald-50 border-t border-gray-100 font-semibold flex justify-between" onclick="deleteHistory(${item.id})">
+                                                <span>지우기</span> <span>⭕</span>
                                             </button>
                                         </div>
                                     </div>
@@ -127,7 +137,7 @@
             }
         }
 
-        // 2. [POST 요청] 입력 폼 서브밋 파이프라인
+        // 2. [POST 및 PUT 통합 관리] 폼 제출 이벤트 핸들러
         document.getElementById('account-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const pay_date = document.getElementById('form-date').value.replace(/-/g, "");
@@ -135,29 +145,89 @@
             const amount = parseInt(document.getElementById('form-amount').value);
             const note = document.getElementById('form-note').value;
 
+            // 라우터 분기 처리 및 하이브리드 바인딩
+            const url = editingId ? `/api/history/${editingId}` : '/api/history';
+            const method = editingId ? 'PUT' : 'POST';
+
             try {
-                const response = await fetch('/api/history', {
-                    method: 'POST',
+                const response = await fetch(url, {
+                    method: method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ pay_date, category_sub_code, amount, note })
                 });
 
                 if (response.ok) {
-                    document.getElementById('form-amount').value = '';
-                    document.getElementById('form-note').value = '';
+                    clearFormState(); // 입력 및 모드 리셋
                     fetchAndRender();
+                } else {
+                    alert("가계부 전송 처리 중 문제가 생겼단다.");
                 }
             } catch (error) {
-                alert("금고 저장 실패! 백엔드 연결을 확인하세요.");
+                alert("통신 장애 발생!");
             }
         });
 
+        // 🔥 [수정 모드 활성화 엔진] 선택한 내역을 찾아서 인풋 박스에 복사 가동
+        function startEdit(id) {
+            closeAllBalloons();
+            // 스와이프 열린 카드 원위치
+            document.querySelectorAll('.card-content').forEach(c => c.style.transform = 'translateX(0px)');
+
+            const target = activeRecords.find(item => item.id === id);
+            if (!target) return;
+
+            editingId = id; // 수정 중인 타겟 ID 고정
+
+            // 1. 날짜 포맷팅 변환 (YYYYMMDD -> YYYY-MM-DD)
+            const rawDate = target.pay_date;
+            const formattedDate = `${rawDate.substring(0,4)}-${rawDate.substring(4,6)}-${rawDate.substring(6,8)}`;
+            
+            // 2. 폼 필드 채워넣기
+            document.getElementById('form-date').value = formattedDate;
+            document.getElementById('form-category').value = target.category_sub_code;
+            document.getElementById('form-amount').value = target.amount;
+            document.getElementById('form-note').value = target.note || '';
+
+            // 3. UI 컴포넌트 시각 형태 피드백 전환
+            document.getElementById('form-section').classList.remove('bg-white');
+            document.getElementById('form-section').classList.add('bg-amber-50', 'border-amber-200');
+            document.getElementById('form-title').innerText = "✏️ 가계부 내역 수정 모드 가동 중";
+            document.getElementById('submit-btn').innerText = "기록 수정 완료하기";
+            document.getElementById('submit-btn').classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            document.getElementById('submit-btn').classList.add('bg-amber-600', 'hover:bg-amber-700');
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
+
+            // 스크롤 상단으로 부드럽게 이동하여 사용성을 확보
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // 🔥 [수정 모드 강제 해제 장치] 폼 상태 초기화
+        function clearFormState() {
+            editingId = null;
+            document.getElementById('form-date').value = new Date().toISOString().substring(0, 10);
+            document.getElementById('form-category').selectedIndex = 0;
+            document.getElementById('form-amount').value = '';
+            document.getElementById('form-note').value = '';
+
+            // 스타일 원상 복구
+            document.getElementById('form-section').classList.remove('bg-amber-50', 'border-amber-200');
+            document.getElementById('form-section').classList.add('bg-white');
+            document.getElementById('form-title').innerText = "💸 새로운 거래 기록하기";
+            document.getElementById('submit-btn').innerText = "금고에 기록 저장하기";
+            document.getElementById('submit-btn').classList.remove('bg-amber-600', 'hover:bg-amber-700');
+            document.getElementById('submit-btn').classList.add('bg-blue-600', 'hover:bg-blue-700');
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
+        }
+
         // 3. [DELETE 요청] 데이터베이스 행 파괴
         async function deleteHistory(id) {
+            if(editingId === id) {
+                alert("현재 수정 중인 데이터는 지울 수 없단다. 먼저 수정을 취소하렴!");
+                return;
+            }
             try {
                 const response = await fetch(`/api/history/${id}`, { method: 'DELETE' });
                 if (response.ok) {
-                    console.log(`🗑️ ID ${id} 삭제 완료`);
                     fetchAndRender(); 
                 } else {
                     alert("삭제 실패!");
@@ -167,7 +237,6 @@
             }
         }
 
-        // 4. [UX 제어] 모바일 슬라이딩 원위치 리셋
         function closeSwipe(btnElement) {
             const container = btnElement.closest('.card-container');
             if (container) {
@@ -176,36 +245,42 @@
             }
         }
 
-        // 🔥 [PC용 신규 함수] 웹 화면 점 3개 클릭 시 벌룬 토글 제어 논리
         function toggleBalloon(btnElement, event) {
-            event.stopPropagation(); // 카드 자체 클릭 방지 보호막
+            event.stopPropagation();
+            const container = btnElement.closest('.card-container');
             const currentMenu = btnElement.nextElementSibling;
             const isHidden = currentMenu.classList.contains('hidden');
             
-            closeAllBalloons(); // 다른 열린 벌룬 정리
+            closeAllBalloons();
             
             if (isHidden) {
                 currentMenu.classList.remove('hidden');
+                if (container) {
+                    container.classList.remove('z-10');
+                    container.classList.add('z-30');
+                }
             }
         }
 
-        // 🔥 [PC용 신규 함수] 활성화된 모든 벌룬 일괄 숨김 처리
         function closeAllBalloons() {
             document.querySelectorAll('.balloon-menu').forEach(menu => {
                 menu.classList.add('hidden');
             });
+            document.querySelectorAll('.card-container').forEach(container => {
+                container.classList.remove('z-30');
+                container.classList.add('z-10');
+            });
         }
 
-        // 웹 바탕화면 여백 아무 곳이나 누르면 오픈된 PC 벌룬 자동 폐쇄
         document.addEventListener('click', closeAllBalloons);
 
-        // 5. [TOUCH 모바일 제스처 엔진] 모바일 단말기 전용 슬라이더 연산 유지
+        // 5. [TOUCH 모바일 제스처 엔진] 3개의 버튼 너비인 180px만큼 임계점 및 연산 수정
         let touchStartX = 0;
         let touchEndX = 0;
         const listWrapper = document.getElementById('history-list');
 
         listWrapper.addEventListener('touchstart', (e) => {
-            closeAllBalloons(); // 터치 시 PC 벌룬 열린 게 있다면 삭제
+            closeAllBalloons();
             const content = e.target.closest('.card-content');
             if (!content) return;
             touchStartX = e.touches[0].clientX;
@@ -218,16 +293,17 @@
             touchEndX = e.changedTouches[0].clientX;
             const diffX = touchStartX - touchEndX;
             
+            // 💡 세 가지 제어판이 노출되도록 수동 연산 영역을 -180px로 가공
             if (diffX > 45) {
                 document.querySelectorAll('.card-content').forEach(c => c.style.transform = 'translateX(0px)');
-                content.style.transform = 'translateX(-128px)';
+                content.style.transform = 'translateX(-180px)';
             } 
             else if (diffX < -45) {
                 content.style.transform = 'translateX(0px)';
             }
         }, { passive: true });
 
-        // 6. [웹소켓] 실시간 수신 안테나
+        // 6. [웹소켓] 실시간 주파수 신호 연동 안정화
         const socket = io();
         socket.on('database_changed', (data) => {
             console.log("⚡ 실시간 주파수 신호 감지됨:", data.message);
