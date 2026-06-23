@@ -29,8 +29,49 @@ if (!fs.existsSync(dbDir)) {
 
 // 그 이후 DB 연결 진행
 const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) console.error('❌ DB 금고 연결 실패:', err.message);
-    else console.log(`⚡ DB 연결 성공 (경로: ${dbPath})`);
+    if (err) {
+        console.error('❌ DB 금고 연결 실패:', err.message);
+        return;
+    }
+    console.log(`⚡ DB 연결 성공 (경로: ${dbPath})`);
+
+    // DB가 새로 생성된 경우를 대비해 필수 테이블과 기본 카테고리를 자동으로 초기화
+    const initSql = `
+        CREATE TABLE IF NOT EXISTS category_sub_code (
+            category_sub_code TEXT PRIMARY KEY,
+            code_name_han TEXT NOT NULL,
+            etc1_value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS account_book (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pay_date TEXT NOT NULL,
+            category_sub_code TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            note TEXT,
+            FOREIGN KEY(category_sub_code) REFERENCES category_sub_code(category_sub_code)
+        );
+    `;
+
+    db.exec(initSql, (initErr) => {
+        if (initErr) {
+            console.error('❌ DB 초기화 실패:', initErr.message);
+            return;
+        }
+
+        const seedSql = `
+            INSERT OR IGNORE INTO category_sub_code (category_sub_code, code_name_han, etc1_value) VALUES
+                ('INC_ALLOWANCE', '정기용돈_수입', 'INCOME'),
+                ('INC_CHORE', '집안일_수입', 'INCOME'),
+                ('EXP_SNACK', '과자_지출', 'EXPENSE'),
+                ('EXP_SCHOOL', '학교/준비물_지출', 'EXPENSE');
+        `;
+
+        db.exec(seedSql, (seedErr) => {
+            if (seedErr) {
+                console.error('❌ 카테고리 시드 실패:', seedErr.message);
+            }
+        });
+    });
 });
 
 // 💡 [웹소켓 추가] 단말기(브라우저/스마트폰) 접속 이벤트 리스너
