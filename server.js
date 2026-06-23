@@ -19,6 +19,15 @@ app.use(express.static(path.join(__dirname)));
 // 2. 클라우드 영구 저장 디스크 경로 지원 SQLite 파일 연결
 const dbDir = process.env.RENDER_DISK_MOUNT_PATH || __dirname;
 const dbPath = path.join(dbDir, 'account_book.db');
+
+// 🔥 [여기를 추가] 만약 지목한 폴더(/data)가 물리적으로 없으면 자동으로 생성해 주는 방어 코드!
+const fs = require('fs');
+if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+    console.log(`📁 DB 저장 폴더가 없어서 새로 생성함: ${dbDir}`);
+}
+
+// 그 이후 DB 연결 진행
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) console.error('❌ DB 금고 연결 실패:', err.message);
     else console.log(`⚡ DB 연결 성공 (경로: ${dbPath})`);
